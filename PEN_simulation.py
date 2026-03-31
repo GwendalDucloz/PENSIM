@@ -274,42 +274,119 @@ class PEN_System:
 
 
     def graph(self):
+        """
+        Experimental code
+        Build the graph representation of the system, with signals, templates and drains as nodes, and edges between them if they interact in the system
+        """
         G=nx.DiGraph()
+        wastes=[rT.output for rT in self.reporters if rT.output!=None]
         for sig in self.signals:
-            G.add_node(sig.name, type="Signal", sequence=sig.sequence, concentration=sig.concentration)
-        for dr in syst.drains:
-            G.add_node(dr.name, type="Drain", sequence=dr.sequence, concentration=dr.concentration)
+            G.add_node(sig.name, type="Signal", sequence=sig.sequence, concentration=sig.concentration, waste=sig in wastes)
+        for dr in self.drains:
+            if dr in self.dict_output:
+                pass
+            else:
+                G.add_node(dr.name, type="Drain", sequence=dr.sequence, concentration=dr.concentration)
+                G.add_edge(dr.input.name, dr.name, type="Drain", name=dr.name)
         for tmp in self.templates:
             if not tmp.input or not tmp.output:
                 raise Exception(f"{tmp.name} has no input or no output")
             if tmp.input.name not in G:
                 G.add_node(tmp.input.name, type="Signal", sequence=tmp.input.sequence, concentration=tmp.input.concentration)
-            if tmp.output.name not in G:
+            if tmp.output.name not in G and not isinstance(tmp.output, Drain):
                 G.add_node(tmp.output.name, type="Signal", sequence=tmp.output.sequence, concentration=tmp.output.concentration)
             if isinstance(tmp.output, Drain):
-                G.add_edge(tmp.input.name, tmp.output.input.name, type="kT")
+                G.add_edge(tmp.input.name, tmp.output.input.name, type="kT", name=tmp.name)
             elif isinstance(tmp.output, Signal):
-                G.add_edge(tmp.input.name, tmp.output.name, type="Template")
+                G.add_edge(tmp.input.name, tmp.output.name, type="Template", name=tmp.name)
+        for rT in self.reporters:
+            G.add_edge(rT.input.name, rT.output.name, type="rT", name=rT.name)
+
+
+
         return G
     
-    def graph_representation(self, label:bool=False):
+    def graph_representation(self, label:bool=False, size=1):
+        """
+        Experimental code
+        Plot the graph representation of the system, with signals, templates and drains as nodes, and edges between them if they interact in the system. 
+        The color and shape of the nodes depend on their type (signal, template or drain), and the color of the edges depend on the type of interaction (kT or template).
+        """
         G=self.graph()
         # Choose a layout
-        plt.figure(figsize=(20, 15))
+        plt.figure(figsize=(20*size, 15*size))
         pos = nx.spring_layout(G, k=0.5, iterations=50)
 
-        # Add labels
-        if label:
-            nx.draw_networkx_labels(G, pos, font_size=10, font_weight="bold")
-            edge_labels = {(u, v): f"cT{u}{v}" for u, v in G.edges()}
-
+        node_sizes = []
+        node_colors = []
+        node_shapes = []
+        for node in G.nodes():
+            if G.nodes[node].get("type") == "Drain":
+                node_sizes.append(100)  # Small size
+                node_colors.append("black")
+                node_shapes.append("o")
+            elif G.nodes[node].get("waste"):
+                node_sizes.append(300)  # Default size
+                node_colors.append("yellow")  # Yellow color for waste signals
+                node_shapes.append("*")  # Star shape for waste signals
+            else:
+                node_sizes.append(300)  # Default size
+                node_colors.append("skyblue")  # Default color
+                node_shapes.append("o")
+        
         pos = nx.nx_agraph.graphviz_layout(G, prog="dot")
-        nx.draw(G, pos, with_labels=True, arrows=True)
+
+        # Draw nodes
+        for shape in set(node_shapes):
+            nodes_of_shape = [i for i, s in enumerate(node_shapes) if s == shape]
+            nx.draw_networkx_nodes(
+                G, pos,
+                nodelist=[list(G.nodes())[i] for i in nodes_of_shape],
+                node_size=[node_sizes[i] for i in nodes_of_shape],
+                node_color=[node_colors[i] for i in nodes_of_shape],
+                node_shape=shape,
+                                      )
+
+        # Extract edge types (assuming edge types are stored as attributes)
+        edge_colors = []
+        arrow_styles = []
+        for u, v, attr in G.edges(data=True):
+            if attr.get("type") == "kT":
+                edge_colors.append("red")
+                arrow_styles.append("-[")
+            else:
+                edge_colors.append("black")  # or any other default color
+                arrow_styles.append("-|>")  # or any other default style
+
+        # Draw edges
+        nx.draw_networkx_edges(
+            G, pos,
+            edge_color=edge_colors,
+            arrows=True,
+            arrowstyle=arrow_styles,
+        )
+
+        # nx.draw(G, pos, with_labels=True, arrows=True, edge_color=edge_colors, node_size=node_sizes, node_color=node_colors, node_shape=node_shapes, font_size=10, font_weight="bold")
+            # Draw node labels in bold
+        nx.draw_networkx_labels(
+            G, pos,
+            font_size=10,
+            font_weight="bold",  # Bold labels
+            labels={node: node for node in G.nodes() if not G.nodes[node].get("waste")},  # Only label signals
+        )
+
+        # Labels
+        if label:
+            edge_labels = { e: G.edges[e].get("name", "") for e in G.edges()}
+            nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=10)
+
+        plt.axis("off")
         plt.show()
 
 
 
     def IsWellDefined(self):
+        """Depricated"""
         # 1: Assert all the signals are properly defined
         for s in self.signals:
             if not isinstance(s,Signal):
@@ -344,11 +421,11 @@ class PEN_System:
 
     def add_missing_oligos(self):
         """
-        Add missing oligos to the system, such as elongated templates for non-phosphated templates,
+        Add missing oligos to the system, such as elongated templates for non-phosphorylated templates,
         and shorter versions of signals with both plus and minus modifications.
         """
         for tmp in self.templates:
-            if tmp.sequence!=None and not tmp.phosphated and not tmp.irreversible:
+            if tmp.sequence!=None and not tmp.phosphorylated and not tmp.irreversible:
                 sig_in = tmp.input
                 sig_out=tmp.output
                 rev_seq= reverse_complement(tmp.sequence)
@@ -367,7 +444,7 @@ class PEN_System:
                                                  concentration=0,
                                                  sequence=elongated_seq,
                                                  protected=tmp.protected,
-                                                 phosphated=False,
+                                                 phosphorylated=False,
                                                  irreversible=False,
                                                  nick=tmp.nick)
                         self.add_template(elongated_tmp)
@@ -378,15 +455,16 @@ class PEN_System:
                 for s2 in self.signals:
                     if s2.name==s.name and s2.plus==0 and s2.minus==s.minus:
                         sig_shorter=s2
-                    if sig_shorter==None:
-                        sig_shorter = Signal(name=s.name,
-                                             concentration=0,
-                                             sequence=s.sequence,
-                                             protected=False,
-                                             plus=0,
-                                             minus=s.minus,
-                                             IsDrained=s.IsDrained)
-                        self.add_signal(sig_shorter)
+                if sig_shorter==None:
+                    sig_shorter = Signal(name=s.name,
+                                            concentration=0,
+                                            sequence=s.sequence[:-s.plus],
+                                            protected=False,
+                                            plus=0,
+                                            minus=s.minus,
+                                            IsDrained=s.IsDrained)
+                    # print(f"Adding shorter version of {s.name}+{s.plus}-{s.minus} : {sig_shorter.name}+{sig_shorter.plus}-{sig_shorter.minus}")
+                    self.add_signal(sig_shorter)
 
                         
     def update_dict_index(self):
@@ -479,8 +557,10 @@ class PEN_System:
                 self.dict_var_signals[s.name].append(s) # Add the potential other versions of the signal
             for tmp in self.templates:
                 if tmp.input==s and tmp.output==s:
-                    self.dict_kin_rates[(s,tmp,'input')]=compute_rates(s,tmp,self.temperature, self.sodium, self.magnesium, option='input')
-                    self.dict_kin_rates[(s,tmp,'output')]=compute_rates(s,tmp,self.temperature, self.sodium, self.magnesium, option='output')
+                    if (s,tmp,'input') not in self.dict_kin_rates:
+                        self.dict_kin_rates[(s,tmp,'input')]=compute_rates(s,tmp,self.temperature, self.sodium, self.magnesium, option='input')
+                    if (s,tmp,'output') not in self.dict_kin_rates:
+                        self.dict_kin_rates[(s,tmp,'output')]=compute_rates(s,tmp,self.temperature, self.sodium, self.magnesium, option='output')
                     if s in self.dict_output and tmp not in self.dict_output[s]:
                         self.dict_output[s].append(tmp)
                     else:
@@ -490,13 +570,15 @@ class PEN_System:
                     else:
                         self.dict_input[s]=[(tmp,0)]                    
                 elif tmp.output==s:
-                    self.dict_kin_rates[(s,tmp)]=compute_rates(s,tmp,self.temperature, self.sodium, self.magnesium)
+                    if (s,tmp) not in self.dict_kin_rates:
+                        self.dict_kin_rates[(s,tmp)]=compute_rates(s,tmp,self.temperature, self.sodium, self.magnesium)
                     if s in self.dict_output and tmp not in self.dict_output[s]:
                         self.dict_output[s].append(tmp)
                     else:
                         self.dict_output[s]=[tmp]
                 elif tmp.input==s:
-                    self.dict_kin_rates[(s,tmp)]=compute_rates(s,tmp,self.temperature, self.sodium, self.magnesium)
+                    if (s,tmp) not in self.dict_kin_rates:
+                        self.dict_kin_rates[(s,tmp)]=compute_rates(s,tmp,self.temperature, self.sodium, self.magnesium)
                     if s in self.dict_input and (tmp, 0) not in self.dict_input[s]:
                         self.dict_input[s].append((tmp,0))
                     else:
@@ -511,7 +593,8 @@ class PEN_System:
                         self.dict_drain[s].append(d)
             for rT in self.reporters:    
                 if rT.input==s or rT.output==s:
-                    self.dict_kin_rates[(s,rT)]=compute_rates(s,rT,self.temperature, self.sodium, self.magnesium)
+                    if (s,rT) not in self.dict_kin_rates:
+                        self.dict_kin_rates[(s,rT)]=compute_rates(s,rT,self.temperature, self.sodium, self.magnesium)
         # Add the var signals in dict_input
         for s in self.signals:
             if s.name in self.dict_var_signals:
@@ -522,25 +605,30 @@ class PEN_System:
                                 self.dict_input[s]=[]
                             if (tmp,0) not in self.dict_input[s]:
                                 self.dict_input[s].append((tmp,0))
-                                self.dict_kin_rates[(s,tmp,'input')]=compute_rates(s,tmp,self.temperature, self.sodium, self.magnesium, option='input')
+                                if (s,tmp,'input') not in self.dict_kin_rates:
+                                    self.dict_kin_rates[(s,tmp,'input')]=compute_rates(s,tmp,self.temperature, self.sodium, self.magnesium, option='input')
                     if s_var != s and s_var in self.dict_drain:
                         for d in self.dict_drain[s_var]:
                             if s not in self.dict_drain and s.plus==0:
                                 self.dict_drain[s]=[]
                             if s.plus==0 and d not in self.dict_drain[s]:
                                 self.dict_drain[s].append(d)
-                                self.dict_kin_rates[(s,d)]=compute_rates(s,d,self.temperature, self.sodium, self.magnesium)
+                                if (s,d) not in self.dict_kin_rates:
+                                    self.dict_kin_rates[(s,d)]=compute_rates(s,d,self.temperature, self.sodium, self.magnesium)
             for rT in self.reporters:    
                 if rT.input==s:
                     for s_var in self.dict_var_signals[s.name]:
                         if s_var != s:
-                            self.dict_kin_rates[(s_var,rT)]=compute_rates(s_var,rT,self.temperature, self.sodium, self.magnesium)
+                            if (s_var,rT) not in self.dict_kin_rates:
+                                self.dict_kin_rates[(s_var,rT)]=compute_rates(s_var,rT,self.temperature, self.sodium, self.magnesium)
 
         for d in self.drains:
-            self.dict_kin_rates[d]=compute_rates(d,None,self.temperature, self.sodium, self.magnesium)
+            if d not in self.dict_kin_rates:
+                self.dict_kin_rates[d]=compute_rates(d,None,self.temperature, self.sodium, self.magnesium)
             for tmp in self.templates:
                 if tmp.output==d:
-                    self.dict_kin_rates[(d,tmp)]=compute_rates(d,tmp,self.temperature, self.sodium, self.magnesium)
+                    if (d,tmp) not in self.dict_kin_rates:
+                        self.dict_kin_rates[(d,tmp)]=compute_rates(d,tmp,self.temperature, self.sodium, self.magnesium)
                     if d in self.dict_output and tmp not in self.dict_output[d]:
                         self.dict_output[d].append(tmp)
                     else:
@@ -609,9 +697,9 @@ class PEN_System:
             div+= sum([self.get_concentration(y, d, option="in")/polK(temperature=self.temperature, tmp=d) for d in self.drains]) # Use of pol for drains
             div+= sum([self.get_concentration(y, tmp, option="both")/polK_both(temperature=self.temperature, tmp=tmp) for tmp in self.templates]) # Use of pol for "both" templates 
 
-            div+= sum([self.get_concentration(y, tmp, option="in")/polK(temperature=self.temperature, tmp=tmp) for tmp in self.dict_tmp_elongation]) # Use of pol for non-phosphated "in" templates
-            div+= sum([self.get_concentration(y, tmp, option="both")/polK_both(temperature=self.temperature, tmp=tmp) for tmp in self.dict_tmp_elongation]) # Use of pol for  non-phosphated "both" templates 
-            div+= sum([self.get_concentration(y, tmp, option="ext")/polK_both(temperature=self.temperature, tmp=tmp) for tmp in self.dict_tmp_elongation]) # Use of pol for  non-phosphated "ext" templates 
+            div+= sum([self.get_concentration(y, tmp, option="in")/polK(temperature=self.temperature, tmp=tmp) for tmp in self.dict_tmp_elongation]) # Use of pol for non-phosphorylated "in" templates
+            div+= sum([self.get_concentration(y, tmp, option="both")/polK_both(temperature=self.temperature, tmp=tmp) for tmp in self.dict_tmp_elongation]) # Use of pol for  non-phosphorylated "both" templates 
+            div+= sum([self.get_concentration(y, tmp, option="ext")/polK_both(temperature=self.temperature, tmp=tmp) for tmp in self.dict_tmp_elongation]) # Use of pol for  non-phosphorylated "ext" templates 
             pol/=polK(temperature=self.temperature, tmp=tmp_) * div
             return pol
 
@@ -754,8 +842,8 @@ class PEN_System:
                     gen-= pol(tmp) * self.get_concentration(y, tmp, sig_in, option="in") # The polymerase binds to in
                     if tmp in self.dict_tmp_elongation and sig_in.minus==0: # Warning: if sig_in is able to elongate the tmp TODO
                         elongated_tmp=self.dict_tmp_elongation[tmp]
-                        equations[self.dict_index[(elongated_tmp, sig_in, "in")]]+= pol(sig_in)*self.get_concentration(y, tmp, sig_in, option="in") # The polymerase bind to the non-phosphated template and elongates it
-                        gen-= pol(sig_in)*self.get_concentration(y, tmp, sig_in, option="in")  # The polymerase bind to the non-phosphated template and elongates it
+                        equations[self.dict_index[(elongated_tmp, sig_in, "in")]]+= pol(sig_in)*self.get_concentration(y, tmp, sig_in, option="in") # The polymerase bind to the non-phosphorylated template and elongates it
+                        gen-= pol(sig_in)*self.get_concentration(y, tmp, sig_in, option="in")  # The polymerase bind to the non-phosphorylated template and elongates it
                     equations[self.dict_index[(tmp, sig_in, "in")]]+= gen
                     if sig_in.plus!=0:
                         sig_in_shorter=None
@@ -787,8 +875,8 @@ class PEN_System:
                     gen+= nick * self.get_concentration(y, tmp, sig_in, option="ext") # The nicking enzyme binds to ext 
                     if tmp in self.dict_tmp_elongation and sig_in.minus==0: # Warning: if sig_in is able to elongate the tmp, done with a shortcut here
                         elongated_tmp=self.dict_tmp_elongation[tmp]
-                        equations[self.dict_index[(elongated_tmp, sig_in, "both")]]+= pol(sig_in)*self.get_concentration(y, tmp, sig_in, option="both")   # The polymerase bind to the non-phosphated template and elongates it
-                        gen-= pol(sig_in)*self.get_concentration(y, tmp, sig_in, option="both")                                          # The polymerase bind to the non-phosphated template and elongates it
+                        equations[self.dict_index[(elongated_tmp, sig_in, "both")]]+= pol(sig_in)*self.get_concentration(y, tmp, sig_in, option="both")   # The polymerase bind to the non-phosphorylated template and elongates it
+                        gen-= pol(sig_in)*self.get_concentration(y, tmp, sig_in, option="both")                                          # The polymerase bind to the non-phosphorylated template and elongates it
                     equations[self.dict_index[(tmp, sig_in, "both")]]+= gen
                 #case ext
                 for sig_in in self.dict_var_signals[tmp.input.name]:
@@ -799,8 +887,8 @@ class PEN_System:
                     gen-= nick * self.get_concentration(y, tmp, sig_in, option="ext") # The nicking enzyme binds to ext
                     if tmp in self.dict_tmp_elongation and sig_in.minus==0:
                         elongated_tmp=self.dict_tmp_elongation[tmp]
-                        equations[self.dict_index[(elongated_tmp, sig_in, "ext")]]+= pol(sig_in) * self.get_concentration(y, tmp, sig_in, option="ext")   # The polymerase bind to the non-phosphated template and elongates it
-                        gen-= pol(sig_in) * self.get_concentration(y, tmp, sig_in, option="ext")                                          # The polymerase bind to the non-phosphated template and elongates it
+                        equations[self.dict_index[(elongated_tmp, sig_in, "ext")]]+= pol(sig_in) * self.get_concentration(y, tmp, sig_in, option="ext")   # The polymerase bind to the non-phosphorylated template and elongates it
+                        gen-= pol(sig_in) * self.get_concentration(y, tmp, sig_in, option="ext")                                          # The polymerase bind to the non-phosphorylated template and elongates it
                     equations[self.dict_index[(tmp, sig_in, "ext")]]+= gen
                     #case in_drained
                     if sig_in.IsDrained:
@@ -1064,6 +1152,12 @@ class PEN_System:
                             concentrations+= y[:, self.dict_index[(tmp, sig_in, "ext")]]
                             if tmp.input.IsDrained:
                                 concentrations+= y[:, self.dict_index[(tmp, sig_in, "in_drained")]]
+                for d in self.drains:
+                    if d.name == name:
+                        concentrations+= y[:, self.dict_index[(d, "alone")]]
+                        for sig_in in self.dict_var_signals[d.input.name]:
+                            concentrations+= y[:, self.dict_index[(d, sig_in, "in")]]
+                            concentrations+= y[:, self.dict_index[(d, sig_in, "ext")]]
                 return concentrations
             else:
                 raise Exception(f"Option '{option}' not recognized for oligo: {oligo.name}")

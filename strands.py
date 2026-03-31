@@ -61,7 +61,7 @@ class Template:
                  concentration:float = 0, 
                  sequence:str = None, 
                  protected:bool=True,
-                 phosphated:bool=True,
+                 phosphorylated:bool=True,
                  irreversible:bool=False,
                  nick:str="nbI",
                  leak:float|None=None,
@@ -72,7 +72,7 @@ class Template:
         self.sequence=sequence
         self.protected=protected
         self.irreversible=irreversible
-        self.phosphated=phosphated
+        self.phosphorylated=phosphorylated
         self.concentration = concentration
         self.nick=nick
         self.leak=leak
@@ -85,7 +85,7 @@ class Template:
         if self.sequence:
             print(f"sequence: {self.sequence}")
         print(f"protected: {self.protected}")
-        print(f"phosphated: {self.phosphated}")
+        print(f"phosphorylated: {self.phosphorylated}")
         print(f"nick: {self.nick}")
         print(f"irreversible: {self.irreversible}")
         print(f"leak: {self.leak}")
