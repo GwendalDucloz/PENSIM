@@ -9,11 +9,6 @@ from nupack import Model, Strand, Complex, Tube, SetSpec, tube_analysis
 import math
 import networkx as nx
 
-
-import nuad.constraints as nc  # type: ignore
-import nuad.vienna_nupack as nv  # type: ignore
-import nuad.search as ns  # type: ignore
-
 from scipy.integrate import odeint
 
 from strands import Signal, Drain, Template, Reporter, reverse_complement
@@ -383,40 +378,6 @@ class PEN_System:
         plt.axis("off")
         plt.show()
 
-
-
-    def IsWellDefined(self):
-        """Depricated"""
-        # 1: Assert all the signals are properly defined
-        for s in self.signals:
-            if not isinstance(s,Signal):
-                raise Exception(f"{s} isn't properly defined")
-
-        # 2: Assert all the templates have a defined input and output
-        for tmp in self.templates:
-            if not isinstance(tmp,Template):
-                raise Exception(f"{tmp} is not a Template")
-            if (not isinstance(tmp.input, Signal)) or tmp.input not in self.signals:
-                raise Exception(f"Error, {tmp.input} isn't defined")
-            if (not (isinstance(tmp.output, Signal) or isinstance(tmp.output, Drain))) or tmp.output not in self.signals:
-                raise Exception(f"Error, {tmp.output} isn't defined")
-        
-        # 3: Assert all the Drains have a defined input
-        for d in self.drains:
-            if not isinstance(d,Drain):
-                raise Exception(f"{d} isn't properly defined")
-            if (not isinstance(d.input, Signal)) or d.input not in self.signals:
-                raise Exception(f"Error, {tmp.input} isn't defined")
-
-
-        # 4: Assert all the sequences are distinct
-
-        # 5: Assert the sequences correctly match
-
-        # TODO
-
-        
-        return True
 
 
     def add_missing_oligos(self):
